@@ -22,24 +22,26 @@ const Market: React.FC<MarketProps> = ({ setCurrentPageMarket, marketCategory, s
   }, []);
 
   const getServices= async () => { 
-    const requestData = {
-      category: marketCategory
-    };
-  
     try {
-      const response = await fetch('http://192.168.1.29:8000/getServices', {
-        method: 'POST',
+      let url = 'http://192.168.1.29:8000/api/services';
+      if (marketCategory && marketCategory !== '0') {
+        url += `?category=${marketCategory}`;
+      }
+      
+      const response = await fetch(url, {
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestData),
       });
       
       const jsonData = await response.json();
-      setServices(jsonData.message)
+      if (jsonData.success && jsonData.data) {
+        setServices(jsonData.data);
+      }
 
   } catch (error) {
-    console.error('Error logging in:', error);
+    console.error('Error fetching services:', error);
   };
   };
 

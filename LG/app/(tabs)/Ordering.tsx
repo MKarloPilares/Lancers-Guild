@@ -33,50 +33,44 @@ const Ordering: React.FC<OrderingProps> = ({ setCurrentPageOrdering, serviceOwne
   }, []);
 
   const getServiceOwner = async () => { 
-    const requestData = {
-      userID: serviceOwnerID,
-    };
-  
     try {
-      const response = await fetch('http://192.168.1.29:8000/serviceOwner', {
-        method: 'POST',
+      const response = await fetch(`http://192.168.1.29:8000/api/users/${serviceOwnerID}`, {
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestData),
       });
       
       const jsonData = await response.json();
-      setUserDetails(jsonData.message);
+      if (jsonData.success && jsonData.data) {
+        setUserDetails([jsonData.data]);
 
-      const numStars = parseInt(jsonData.message[0].rating); // Convert rating to a number
-    
-      const starsArray: JSX.Element[] = [];
-      for (let i = 0; i < numStars; i++) {
-        starsArray.push(<Icon name="star" size={25} color="white" />);
+        const numStars = parseInt(jsonData.data.rating); // Convert rating to a number
+      
+        const starsArray: JSX.Element[] = [];
+        for (let i = 0; i < numStars; i++) {
+          starsArray.push(<Icon name="star" size={25} color="white" />);
+        }
+        setStars(starsArray);
       }
-      setStars(starsArray);
 
     } catch (error) {
       console.error('Error fetching data:', error);
   }}
     
   const getServiceDetails = async () => { 
-    const requestData = {
-      serveID: serviceID,
-    };
-  
     try {
-      const response = await fetch('http://192.168.1.29:8000/getServiceDetails', {
-        method: 'POST',
+      const response = await fetch(`http://192.168.1.29:8000/api/services/${serviceID}`, {
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestData),
       });
       
       const jsonData = await response.json();
-      setServiceDetails(jsonData.message);
+      if (jsonData.success && jsonData.data) {
+        setServiceDetails([jsonData.data]);
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
   }}
@@ -96,7 +90,7 @@ const Ordering: React.FC<OrderingProps> = ({ setCurrentPageOrdering, serviceOwne
     };
   
     try {
-      const response = await fetch('http://192.168.1.29:8000/confirmOrder', {
+      const response = await fetch('http://192.168.1.29:8000/api/orders', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -104,25 +98,28 @@ const Ordering: React.FC<OrderingProps> = ({ setCurrentPageOrdering, serviceOwne
         body: JSON.stringify(requestData),
       });
 
-      setModalVisible(true);
+      const jsonData = await response.json();
+      if (jsonData.success) {
+        setModalVisible(true);
+      }
       
     } catch (error) {
       console.error('Error fetching data:', error);
   }}
 
   const DeleteService = async () => { 
-    const requestData = {
-      serviceID: serviceID,
-    };
-  
     try {
-      const response = await fetch('http://192.168.1.29:8000/DeleteService', {
-        method: 'POST',
+      const response = await fetch(`http://192.168.1.29:8000/api/services/${serviceID}`, {
+        method: 'DELETE',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestData),
       });
+
+      const jsonData = await response.json();
+      if (jsonData.success) {
+        setModalVisible(true);
+      }
 
       setModalVisible(true);
       

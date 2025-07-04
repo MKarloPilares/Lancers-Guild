@@ -193,11 +193,13 @@ const passToServer = async () => {
   }
 
   try {
-    const response = await fetch('http://192.168.1.29:8000/EditProf', {
-      method: 'POST',
+    const response = await fetch(`http://192.168.1.29:8000/api/users/${userID}`, {
+      method: 'PUT',
       body: formData,
     });
 
+    const jsonData = await response.json();
+    
     if (response.status === 409) {
       // User already exists
       setUserExists(true);
@@ -206,7 +208,7 @@ const passToServer = async () => {
       setWrongNum(false);
       setWrongSpec(false);
       setWrongLen(false);
-    } else if (response.ok) {
+    } else if (response.ok && jsonData.success) {
       setModalVisible(true);
     } else {
       // Handle other server errors

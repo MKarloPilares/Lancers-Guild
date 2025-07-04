@@ -1,5 +1,4 @@
-import React from 'react';
-import { useCallback, useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { View, StyleSheet, Image, Text, TouchableOpacity, ScrollView, TextInput, FlatList } from 'react-native';
 import { useFonts } from 'expo-font';
@@ -17,31 +16,26 @@ const Requests: React.FC<RequestsProps> = ({ userID, setCurrentPageRequests, set
 
   useEffect(() => {
     // Fetch image data from your API endpoint
-    getUserOrders();
+    getUserRequests();
   }, []);
 
   const loadImage = (bytes: any) => {
     return btoa(String.fromCharCode(...new Uint8Array(bytes)))
   };
   
-
-
-  const getUserOrders = async () => { 
-    const requestData = {
-      userID: userID,
-    };
-  
+  const getUserRequests = async () => { 
     try {
-      const response = await fetch('http://192.168.1.29:8000/getUserRequests', {
-        method: 'POST',
+      const response = await fetch(`http://192.168.1.29:8000/api/users/${userID}/requests`, {
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestData),
       });
       
       const jsonData = await response.json();
-      setUserServices(jsonData.message);
+      if (jsonData.success && jsonData.data) {
+        setUserServices(jsonData.data);
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
   }}

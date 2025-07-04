@@ -23,21 +23,18 @@ const Reviews: React.FC<ReviewsProps> = ({ userID}) => {
   };
 
   const getUserReviews = async () => { 
-    const requestData = {
-      userID: userID,
-    };
-  
     try {
-      const response = await fetch('http://192.168.1.29:8000/getUserReviews', {
-        method: 'POST',
+      const response = await fetch(`http://192.168.1.29:8000/api/users/${userID}/reviews`, {
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestData),
       });
       
       const jsonData = await response.json();
-      setUserReviews(jsonData.message);
+      if (jsonData.success && jsonData.data) {
+        setUserReviews(jsonData.data);
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
   }}

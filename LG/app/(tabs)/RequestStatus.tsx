@@ -54,52 +54,46 @@ const RequestStatus: React.FC<RequestStatusProps> = ({ownerID, setCurrentPageReq
 
 
   const getUserProfile = async () => { 
-    const requestData = {
-      userID: ownerID
-    };
-  
     try {
-      const response = await fetch('http://192.168.1.29:8000/serviceOwner', {
-        method: 'POST',
+      const response = await fetch(`http://192.168.1.29:8000/api/users/${ownerID}`, {
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestData),
       });
       
       const jsonData = await response.json();
-      setUserDetails(jsonData.message);
-      const numStars = parseInt(jsonData.message[0].rating); // Convert rating to a number
-    
-      const starsArray: JSX.Element[] = [];
-      for (let i = 0; i < numStars; i++) {
-        starsArray.push(<Icon name="star" size={25} color="white" />);
+      if (jsonData.success && jsonData.data) {
+        setUserDetails([jsonData.data]);
+        const numStars = parseInt(jsonData.data.rating); // Convert rating to a number
+      
+        const starsArray: JSX.Element[] = [];
+        for (let i = 0; i < numStars; i++) {
+          starsArray.push(<Icon name="star" size={25} color="white" />);
+        }
+        setStars(starsArray);
       }
-      setStars(starsArray);
       
     } catch (error) {
       console.error('Error fetching data:', error);
   }}
 
   const getOrderDetails = async () => { 
-    const requestData = {
-      orderID: orderID,
-    };
-  
     try {
-      const response = await fetch('http://192.168.1.29:8000/getOrderDetails', {
-        method: 'POST',
+      const response = await fetch(`http://192.168.1.29:8000/api/orders/${orderID}`, {
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestData),
       });
       
       const jsonData = await response.json();
-      setOrderDetails(jsonData.message);
-      setOrderText(jsonData.message[0].details)
-      setServiceID(jsonData.message[0].serviceID)
-      setRated(jsonData.message[0].rated)
+      if (jsonData.success && jsonData.data) {
+        setOrderDetails([jsonData.data]);
+        setOrderText(jsonData.data.details)
+        setServiceID(jsonData.data.serviceID)
+        setRated(jsonData.data.rated)
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
   }}
@@ -118,16 +112,19 @@ const RequestStatus: React.FC<RequestStatusProps> = ({ownerID, setCurrentPageReq
     formData.append('orderID', orderID);
   
     try {
-      const response = await fetch('http://192.168.1.29:8000/reviewRequest', {
+      const response = await fetch('http://192.168.1.29:8000/api/reviews', {
         method: 'POST',
         body: formData,
       })
       
-      setModalRateVisible(true);
+      const jsonData = await response.json();
+      if (jsonData.success) {
+        setModalRateVisible(true);
+      }
       
   
   } catch (error) {
-    console.error('Error signing up:', error);
+    console.error('Error submitting review:', error);
   };
   };
   
@@ -135,23 +132,25 @@ const RequestStatus: React.FC<RequestStatusProps> = ({ownerID, setCurrentPageReq
     const requestData = {
       deadline: formatDate(date),
       details: orderText,
-      orderID: orderID
     };
   
     try {
       console.log(modalEditVisible)
-      const response = await fetch('http://192.168.1.29:8000/editOrder', {
-        method: 'POST',
+      const response = await fetch(`http://192.168.1.29:8000/api/orders/${orderID}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(requestData),
       });
       
-      setModalEditVisible(true);
+      const jsonData = await response.json();
+      if (jsonData.success) {
+        setModalEditVisible(true);
+      }
       
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('Error updating order:', error);
   }}
 
   const handleDatePickerToggle = () => {

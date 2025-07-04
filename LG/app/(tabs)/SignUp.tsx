@@ -45,8 +45,8 @@ const selectFile = async () => {
   if (!result.canceled) {
     const resizedImage = await manipulateAsync(
       result.assets[0].uri,
-      [{ resize: { width: 360, height: 180 } }], // Adjust width and height as needed
-      { compress: 0.8, format: SaveFormat.PNG } // Adjust compression quality as needed
+      [{ resize: { width: 360, height: 180 } }],
+      { compress: 0.8, format: SaveFormat.PNG } 
     );
 
     setFileUri(resizedImage.uri);
@@ -162,11 +162,13 @@ const passToServer = async () => {
   }
 
   try {
-    const response = await fetch('http://192.168.1.29:8000/signUp', {
+    const response = await fetch('http://192.168.1.29:8000/api/users', {
       method: 'POST',
       body: formData,
     });
 
+    const jsonData = await response.json();
+    
     if (response.status === 409) {
       // User already exists
       setUserExists(true);
@@ -175,11 +177,11 @@ const passToServer = async () => {
       setWrongNum(false);
       setWrongSpec(false);
       setWrongLen(false);
-    } else if (response.ok) {
+    } else if (response.status === 201 && jsonData.success) {
       setModalVisible(true);
     } else {
       // Handle other server errors
-      console.error('Error signing up:', await response.json());
+      console.error('Error signing up:', jsonData.message || 'Unknown error');
     }
 
   } catch (error) {

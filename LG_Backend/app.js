@@ -3,605 +3,829 @@ const cors = require("cors");
 const fs = require('fs');
 const multer = require('multer');
 const path = require('path');
-const mysql = require('mysql2');
+const mysql = require('mysql2/promise');
+require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 8000;
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '10mb' })); // Parse JSON bodies
-app.use(express.urlencoded({ extended: true, limit: '10mb' })); // Parse URL-encoded bodies
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Input validation middleware
+const validateInput = (requiredFields) => {
+    return (req, res, next) => {
+        const missingFields = requiredFields.filter(field => !req.body[field]);
+        if (missingFields.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: `Missing required fields: ${missingFields.join(', ')}`
+            });
+        }
+        next();
+    };
+};
 
 // Error handling middleware
-const handleError = (res, error, message = 'Internal server error', statusCode = 500) => {
-    console.error('Error:', error);
-    res.status(statusCode).json({
+const errorHandler = (err, req, res, next) => {
+    console.error('Error:', err);
+    res.status(500).json({
         success: false,
-        message,
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        message: 'Internal server error',
+        error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
 };
 
-// Success response helper
-const sendSuccess = (res, data, message = 'Success', statusCode = 200) => {
-    res.status(statusCode).json({
-        success: true,
-        message,
-        data
-    });
-};
-
-// MySQL connection with promise support
-const con = mysql.createConnection({
+// MySQL connection
+const dbConfig = {
     host: process.env.DB_HOST || "localhost",
     user: process.env.DB_USER || "root",
     password: process.env.DB_PASSWORD || "Mharkarlo29.",
     database: process.env.DB_NAME || "lg"
-});
+};
 
-con.connect(function(err) {
-    if (err) {
-        console.error('Database connection failed:', err);
+let con;
+
+const connectToDatabase = async () => {
+    try {
+        con = await mysql.createConnection(dbConfig);
+        console.log("Connected to MySQL!");
+    } catch (err) {
+        console.error("Database connection failed:", err);
         process.exit(1);
     }
-    console.log("Connected to MySQL!");
-});
+};
 
-// Multer setup
+connectToDatabase();
+
+// Multer setup for file uploads
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        cb(null, 'uploads' );
+        const uploadDir = path.join(__dirname, 'uploads');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
     },
     filename: function (req, file, cb) {
-        cb(null, Date.now() + path.extname(file.originalname)); // Appending extension
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({ 
+    storage: storage,
+    limits: {
+        fileSize: 5 * 1024 * 1024 // 5MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = /jpeg|jpg|png|gif|webp/;
+        const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+        const mimetype = allowedTypes.test(file.mimetype);
+        
+        if (mimetype && extname) {
+            return cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed'));
+        }
+    }
+});
 
-// User routes - POST /api/users (signup)
+// USERS ENDPOINTS
+
+// POST /api/users - Create new user (Sign up)
 app.post("/api/users", upload.single('image'), async (req, res) => {
-  const { username, password, firstName, lastName, email } = req.body;
-  
-  // Input validation
-  if (!username || !password || !firstName || !lastName || !email) {
-      return res.status(400).json({
-          success: false,
-          message: 'All fields are required'
-      });
-  }
+    try {
+        const { username, password, firstName, lastName, email } = req.body;
+        
+        // Validate required fields
+        if (!username || !password || !firstName || !lastName || !email) {
+            return res.status(400).json({
+                success: false,
+                message: 'All fields are required'
+            });
+        }
 
-  try {
-      // Check if the user already exists
-      const checkUserSql = `SELECT * FROM users WHERE username = ? OR email = ?`;
-      con.query(checkUserSql, [username, email], async (err, results) => {
-          if (err) return handleError(res, err, 'Database error');
+        // Check if user already exists
+        const [existingUsers] = await con.execute(
+            'SELECT userID FROM users WHERE username = ? OR email = ?',
+            [username, email]
+        );
 
-          if (results.length > 0) {
-              return res.status(409).json({
-                  success: false,
-                  message: 'User already exists'
-              });
-          }
+        if (existingUsers.length > 0) {
+            return res.status(409).json({
+                success: false,
+                message: 'Username or email already exists'
+            });
+        }
 
-          // User does not exist, proceed with the insertion
-          let imgData;
-          if (!req.file) {
-              const fallbackImagePath = path.join('C:\\ProgramData\\MySQL\\MySQL Server 8.0\\Uploads', 'blank.webp');
-              try {
-                  imgData = await fs.promises.readFile(fallbackImagePath);
-              } catch (fileErr) {
-                  imgData = null; // Handle case where fallback image doesn't exist
-              }
-          } else {
-              const filePath = path.join(__dirname, 'uploads', req.file.filename);
-              imgData = await fs.promises.readFile(filePath);
-          }
+        // Handle image upload
+        let imgData = null;
+        if (req.file) {
+            const filePath = req.file.path;
+            imgData = await fs.promises.readFile(filePath);
+            // Clean up uploaded file
+            await fs.promises.unlink(filePath);
+        } else {
+            // Use default image
+            const fallbackImagePath = path.join('C:\\ProgramData\\MySQL\\MySQL Server 8.0\\Uploads', 'blank.webp');
+            if (fs.existsSync(fallbackImagePath)) {
+                imgData = await fs.promises.readFile(fallbackImagePath);
+            }
+        }
 
-          const sql = `INSERT INTO users(username, pass, firstName, lastName, email, img) VALUES (?, ?, ?, ?, ?, ?)`;
-          con.query(sql, [username, password, firstName, lastName, email, imgData], (err, result) => {
-              if (err) return handleError(res, err, 'Failed to create user');
-              sendSuccess(res, { userId: result.insertId }, 'User created successfully', 201);
-          });
-      });
-  } catch (err) {
-      handleError(res, err, 'Failed to process request');
-  }
+        // Insert new user
+        const [result] = await con.execute(
+            'INSERT INTO users (username, pass, firstName, lastName, email, img) VALUES (?, ?, ?, ?, ?, ?)',
+            [username, password, firstName, lastName, email, imgData]
+        );
+
+        res.status(201).json({
+            success: true,
+            message: 'User created successfully',
+            data: { userID: result.insertId }
+        });
+
+    } catch (err) {
+        console.error('Error creating user:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create user',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
 });
 
-// PUT /api/users/:id (update user profile)
+// PUT /api/users/:id - Update user profile
 app.put("/api/users/:id", upload.single('image'), async (req, res) => {
-  const { username, password, firstName, lastName, email } = req.body;
-  const userID = req.params.id;
+    try {
+        const userID = req.params.id;
+        const { username, password, firstName, lastName, email } = req.body;
 
-  // Input validation
-  if (!username || !password || !firstName || !lastName || !email) {
-      return res.status(400).json({
-          success: false,
-          message: 'All fields are required'
-      });
-  }
-
-  try {
-    // Check if the username or email already exists for a different user
-    const checkUserSql = `SELECT * FROM users WHERE (username = ? OR email = ?) AND userID != ?`;
-    con.query(checkUserSql, [username, email, userID], async (err, results) => {
-      if (err) return handleError(res, err, 'Database error');
-
-      if (results.length > 0) {
-        return res.status(409).json({
-            success: false,
-            message: 'Username or email already in use'
-        });
-      }
-
-      // Proceed with the update
-      if (!req.file) {
-        const sql = `UPDATE users SET username = ?, pass = ?, firstName = ?, lastName = ?, email = ? WHERE userID = ?`;
-        con.query(sql, [username, password, firstName, lastName, email, userID], (err, result) => {
-          if (err) return handleError(res, err, 'Failed to update user');
-          sendSuccess(res, null, 'User updated successfully');
-        });
-      } else {
-        const filePath = path.join(__dirname, 'uploads', req.file.filename);
-        const data = await fs.promises.readFile(filePath);
-
-        const sql = `UPDATE users SET username = ?, pass = ?, firstName = ?, lastName = ?, email = ?, img = ? WHERE userID = ?`;
-        con.query(sql, [username, password, firstName, lastName, email, data, userID], (err, result) => {
-          if (err) return handleError(res, err, 'Failed to update user');
-          sendSuccess(res, null, 'User updated successfully');
-        });
-      }
-    });
-  } catch (err) {
-    handleError(res, err, 'Failed to process request');
-  }
-});
-
-
-// POST /api/auth/login (user authentication)
-app.post("/api/auth/login", (req, res) => {
-    const { username, password } = req.body;
-    
-    // Input validation
-    if (!username || !password) {
-        return res.status(400).json({
-            success: false,
-            message: 'Username and password are required'
-        });
-    }
-
-    const sql = `SELECT * FROM users WHERE username = ?`;
-    con.query(sql, [username], (err, result) => {
-        if (err) return handleError(res, err, 'Database error');
-        
-        if (result.length === 0) {
-            return res.status(401).json({
+        // Validate required fields
+        if (!username || !password || !firstName || !lastName || !email) {
+            return res.status(400).json({
                 success: false,
-                message: 'Invalid credentials'
+                message: 'All fields are required'
             });
         }
 
-        // In a real application, you should hash passwords and compare hashes
-        const user = result[0];
-        if (user.pass !== password) {
-            return res.status(401).json({
+        // Check if username or email exists for different user
+        const [existingUsers] = await con.execute(
+            'SELECT userID FROM users WHERE (username = ? OR email = ?) AND userID != ?',
+            [username, email, userID]
+        );
+
+        if (existingUsers.length > 0) {
+            return res.status(409).json({
                 success: false,
-                message: 'Invalid credentials'
+                message: 'Username or email already in use'
             });
         }
 
-        // Don't send password in response
-        const { pass, ...userWithoutPassword } = user;
-        sendSuccess(res, userWithoutPassword, 'Login successful');
-    });
-});
+        let updateQuery, updateParams;
 
-// GET /api/categories (get all categories)
-app.get("/api/categories", (req, res) => {
-    const sql = `SELECT * FROM categories`;
-    con.query(sql, (err, result) => {
-        if (err) return handleError(res, err, 'Failed to fetch categories');
-        sendSuccess(res, result, 'Categories retrieved successfully');
-    });
-});
+        if (req.file) {
+            const filePath = req.file.path;
+            const imgData = await fs.promises.readFile(filePath);
+            await fs.promises.unlink(filePath); // Clean up
 
-// GET /api/users (get all users)
-app.get("/api/users", (req, res) => {
-    const sql = `SELECT userID, username, firstName, lastName, email, rating FROM users`;
-    con.query(sql, (err, result) => {
-        if (err) return handleError(res, err, 'Failed to fetch users');
-        sendSuccess(res, result, 'Users retrieved successfully');
-    });
-});
+            updateQuery = 'UPDATE users SET username = ?, pass = ?, firstName = ?, lastName = ?, email = ?, img = ? WHERE userID = ?';
+            updateParams = [username, password, firstName, lastName, email, imgData, userID];
+        } else {
+            updateQuery = 'UPDATE users SET username = ?, pass = ?, firstName = ?, lastName = ?, email = ? WHERE userID = ?';
+            updateParams = [username, password, firstName, lastName, email, userID];
+        }
 
-// GET /api/services?category=:categoryId (get services by category)
-app.get("/api/services", (req, res) => {
-    const { category } = req.query;
-    
-    let sql, params;
-    if (!category || category === '0') {
-        sql = `SELECT * FROM services`;
-        params = [];
-    } else {
-        sql = `SELECT * FROM services WHERE catID = ?`;
-        params = [category];
-    }
-    
-    con.query(sql, params, (err, result) => {
-        if (err) return handleError(res, err, 'Failed to fetch services');
-        sendSuccess(res, result, 'Services retrieved successfully');
-    });
-});
+        const [result] = await con.execute(updateQuery, updateParams);
 
-// GET /api/users/:id (get user by ID)
-app.get("/api/users/:id", (req, res) => {
-    const { id } = req.params;
-    
-    const sql = `SELECT userID, username, firstName, lastName, email, rating, img FROM users WHERE userID = ?`;
-    con.query(sql, [id], (err, result) => {
-        if (err) return handleError(res, err, 'Failed to fetch user');
-        
-        if (result.length === 0) {
+        if (result.affectedRows === 0) {
             return res.status(404).json({
                 success: false,
                 message: 'User not found'
             });
         }
-        
-        sendSuccess(res, result[0], 'User retrieved successfully');
-    });
+
+        res.json({
+            success: true,
+            message: 'User updated successfully'
+        });
+
+    } catch (err) {
+        console.error('Error updating user:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update user',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
 });
 
-// GET /api/services/:id (get service details)
-app.get("/api/services/:id", (req, res) => {
-    const { id } = req.params;
-    
-    const sql = `SELECT * FROM services WHERE serviceID = ?`;
-    con.query(sql, [id], (err, result) => {
-        if (err) return handleError(res, err, 'Failed to fetch service');
+// POST /api/auth/login - User login
+app.post("/api/auth/login", async (req, res) => {
+    try {
+        const { username, password } = req.body;
+
+        if (!username || !password) {
+            return res.status(400).json({
+                success: false,
+                message: 'Username and password are required'
+            });
+        }
+
+        const [users] = await con.execute(
+            'SELECT userID, username, firstName, lastName, email, img FROM users WHERE username = ? AND pass = ?',
+            [username, password]
+        );
+
+        if (users.length === 0) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid credentials'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Login successful',
+            data: users[0]
+        });
+
+    } catch (err) {
+        console.error('Error during login:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Login failed',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
+});
+
+// GET /api/users - Get all users
+app.get("/api/users", async (req, res) => {
+    try {
+        const [users] = await con.execute('SELECT userID, username, firstName, lastName, email, rating FROM users');
         
-        if (result.length === 0) {
+        res.json({
+            success: true,
+            data: users
+        });
+
+    } catch (err) {
+        console.error('Error fetching users:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch users',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
+});
+
+// GET /api/users/:id - Get specific user
+app.get("/api/users/:id", async (req, res) => {
+    try {
+        const userID = req.params.id;
+        
+        const [users] = await con.execute(
+            'SELECT userID, username, firstName, lastName, email, rating, img FROM users WHERE userID = ?',
+            [userID]
+        );
+
+        if (users.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: users[0]
+        });
+
+    } catch (err) {
+        console.error('Error fetching user:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch user',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
+});
+
+// CATEGORIES ENDPOINTS
+
+// GET /api/categories - Get all categories
+app.get("/api/categories", async (req, res) => {
+    try {
+        const [categories] = await con.execute('SELECT * FROM categories');
+        
+        res.json({
+            success: true,
+            data: categories
+        });
+
+    } catch (err) {
+        console.error('Error fetching categories:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch categories',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
+});
+
+// SERVICES ENDPOINTS
+
+// GET /api/services - Get all services or by category
+app.get("/api/services", async (req, res) => {
+    try {
+        const { category } = req.query;
+        let query, params = [];
+        
+        if (category && category !== '0') {
+            query = 'SELECT * FROM services WHERE catID = ?';
+            params = [category];
+        } else {
+            query = 'SELECT * FROM services';
+        }
+
+        const [services] = await con.execute(query, params);
+        
+        res.json({
+            success: true,
+            data: services
+        });
+
+    } catch (err) {
+        console.error('Error fetching services:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch services',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
+});
+
+// GET /api/services/:id - Get specific service
+app.get("/api/services/:id", async (req, res) => {
+    try {
+        const serviceID = req.params.id;
+        
+        const [services] = await con.execute(
+            'SELECT * FROM services WHERE serviceID = ?',
+            [serviceID]
+        );
+
+        if (services.length === 0) {
             return res.status(404).json({
                 success: false,
                 message: 'Service not found'
             });
         }
-        
-        sendSuccess(res, result[0], 'Service retrieved successfully');
-    });
-});
 
-// POST /api/orders (create new order)
-app.post("/api/orders", async (req, res) => {
-    const { custID, lancerID, deadline, details, serviceID, title, custName, lancerName, price, status } = req.body;
-
-    // Input validation
-    if (!custID || !lancerID || !deadline || !details || !serviceID || !title || !custName || !lancerName || !price) {
-        return res.status(400).json({
-            success: false,
-            message: 'All required fields must be provided'
+        res.json({
+            success: true,
+            data: services[0]
         });
-    }
-
-    try {
-        // Insert the order into the orders table
-        const insertResult = await con.promise().query(
-            `INSERT INTO orders (custID, lancerID, deadline, details, serviceID, title, custName, lancerName, price, status) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
-            [custID, lancerID, deadline, details, serviceID, title, custName, lancerName, price, status || 'pending']
-        );
-
-        const orderID = insertResult[0].insertId;
-
-        // Update the orders table with the corresponding img from the services table
-        await con.promise().query(
-            `UPDATE orders o
-             JOIN services s ON o.serviceID = s.serviceID
-             SET o.img = s.img
-             WHERE o.orderID = ?`, 
-            [orderID]
-        );
-
-        sendSuccess(res, { orderID }, 'Order created successfully', 201);
 
     } catch (err) {
-        handleError(res, err, 'Failed to create order');
+        console.error('Error fetching service:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch service',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
     }
 });
 
-// GET /api/users/:id/services (get user's services)
-app.get("/api/users/:id/services", (req, res) => {
-    const { id } = req.params;
-    
-    const sql = `SELECT * FROM services WHERE ownerID = ?`;
-    con.query(sql, [id], (err, result) => {
-        if (err) return handleError(res, err, 'Failed to fetch user services');
-        sendSuccess(res, result, 'User services retrieved successfully');
-    });
-});
-
-// GET /api/users/:id/reviews (get user's reviews)
-app.get("/api/users/:id/reviews", (req, res) => {
-    const { id } = req.params;
-    
-    const sql = `SELECT * FROM userReviews WHERE userID = ?`;
-    con.query(sql, [id], (err, result) => {
-        if (err) return handleError(res, err, 'Failed to fetch user reviews');
-        sendSuccess(res, result, 'User reviews retrieved successfully');
-    });
-});
-
-// GET /api/users/:id/orders (get user's orders as freelancer)
-app.get("/api/users/:id/orders", (req, res) => {
-    const { id } = req.params;
-    
-    const sql = `SELECT * FROM orders WHERE lancerID = ?`;
-    con.query(sql, [id], (err, result) => {
-        if (err) return handleError(res, err, 'Failed to fetch user orders');
-        sendSuccess(res, result, 'User orders retrieved successfully');
-    });
-});
-
-// GET /api/users/:id/requests (get user's requests as customer)
-app.get("/api/users/:id/requests", (req, res) => {
-    const { id } = req.params;
-    
-    const sql = `SELECT * FROM orders WHERE custID = ?`;
-    con.query(sql, [id], (err, result) => {
-        if (err) return handleError(res, err, 'Failed to fetch user requests');
-        sendSuccess(res, result, 'User requests retrieved successfully');
-    });
-});
-
-// GET /api/orders/:id (get order details)
-app.get("/api/orders/:id", (req, res) => {
-    const { id } = req.params;
-    
-    const sql = `SELECT * FROM orders WHERE orderID = ?`;
-    con.query(sql, [id], (err, result) => {
-        if (err) return handleError(res, err, 'Failed to fetch order');
+// GET /api/users/:id/services - Get services by user
+app.get("/api/users/:id/services", async (req, res) => {
+    try {
+        const userID = req.params.id;
         
-        if (result.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'Order not found'
-            });
-        }
-        
-        sendSuccess(res, result[0], 'Order retrieved successfully');
-    });
+        const [services] = await con.execute(
+            'SELECT * FROM services WHERE ownerID = ?',
+            [userID]
+        );
+
+        res.json({
+            success: true,
+            data: services
+        });
+
+    } catch (err) {
+        console.error('Error fetching user services:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch user services',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
 });
 
-
-// POST /api/services (create new service)
+// POST /api/services - Create new service
 app.post('/api/services', upload.single('thumbnail'), async (req, res) => {
-    const { serviceName, ownerID, price, catID } = req.body;
-
-    // Input validation
-    if (!serviceName || !ownerID || !price || !catID) {
-        return res.status(400).json({
-            success: false,
-            message: 'All required fields must be provided'
-        });
-    }
-
     try {
+        const { serviceName, ownerID, price, catID } = req.body;
+
+        // Validate required fields
+        if (!serviceName || !ownerID || !price || !catID) {
+            return res.status(400).json({
+                success: false,
+                message: 'Service name, owner ID, price, and category are required'
+            });
+        }
+
         let imgData = null;
-        
-        if (!req.file) {
-            // Try to load default thumbnail
-            try {
-                const defaultPath = path.join('C:\\ProgramData\\MySQL\\MySQL Server 8.0\\Uploads', 'blankthumb.jpg');
-                imgData = await fs.promises.readFile(defaultPath);
-            } catch (fileErr) {
-                console.warn('Default thumbnail not found, proceeding without image');
-            }
-        } else {
-            const filePath = path.join(__dirname, 'uploads', req.file.filename);
+        if (req.file) {
+            const filePath = req.file.path;
             imgData = await fs.promises.readFile(filePath);
-        }
-
-        const sql = 'INSERT INTO services (serviceName, ownerID, price, catID, img) VALUES (?, ?, ?, ?, ?)';
-        con.query(sql, [serviceName, ownerID, price, catID, imgData], (err, result) => {
-            if (err) return handleError(res, err, 'Failed to create service');
-            sendSuccess(res, { serviceID: result.insertId }, 'Service created successfully', 201);
-        });
-    } catch (err) {
-        handleError(res, err, 'Failed to process request');
-    }
-});
-
-// PUT /api/orders/:id/complete (complete order)
-app.put('/api/orders/:id/complete', upload.single('proof'), async (req, res) => {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    if (!status) {
-        return res.status(400).json({
-            success: false,
-            message: 'Status is required'
-        });
-    }
-
-    try {
-        if (!req.file) {
-            const sql = `UPDATE orders SET status = ? WHERE orderID = ?`;
-            con.query(sql, [status, id], (err, result) => {
-                if (err) return handleError(res, err, 'Failed to update order');
-                
-                if (result.affectedRows === 0) {
-                    return res.status(404).json({
-                        success: false,
-                        message: 'Order not found'
-                    });
-                }
-                
-                sendSuccess(res, null, 'Order updated successfully');
-            });
+            await fs.promises.unlink(filePath); // Clean up
         } else {
-            const filePath = path.join(__dirname, 'uploads', req.file.filename);
-            const data = await fs.promises.readFile(filePath);
-            
-            const sql = `UPDATE orders SET status = ?, img = ? WHERE orderID = ?`;
-            con.query(sql, [status, data, id], (err, result) => {
-                if (err) return handleError(res, err, 'Failed to update order');
-                
-                if (result.affectedRows === 0) {
-                    return res.status(404).json({
-                        success: false,
-                        message: 'Order not found'
-                    });
-                }
-                
-                sendSuccess(res, null, 'Order completed successfully');
-            });
-        }
-    } catch (err) {
-        handleError(res, err, 'Failed to process request');
-    }
-});
-
-// POST /api/reviews (create review)
-app.post('/api/reviews', upload.none(), async (req, res) => {
-    const { lancerRating, serviceRating, serviceID, userID, ownerID, reviewText, username, orderID } = req.body;
-
-    // Input validation
-    if (!lancerRating || !serviceRating || !serviceID || !userID || !ownerID || !reviewText || !username || !orderID) {
-        return res.status(400).json({
-            success: false,
-            message: 'All required fields must be provided'
-        });
-    }
-
-    try {
-        // Insert user review
-        await con.promise().query(
-            'INSERT INTO userReviews (reviewText, custID, userID, rating, reviewer) VALUES (?, ?, ?, ?, ?)',
-            [reviewText, userID, ownerID, lancerRating, username]
-        );
-
-        // Mark order as rated
-        await con.promise().query(
-            'UPDATE orders SET rated = ? WHERE orderID = ?',
-            [1, orderID]
-        );
-
-        // Update reviewer image
-        await con.promise().query(
-            `UPDATE userreviews AS o 
-             JOIN ( SELECT userID, img FROM users ) AS u ON o.custID = u.userID 
-             JOIN ( SELECT MAX(custID) AS last_id FROM userreviews) AS last_row ON o.custID = last_row.last_id 
-             SET o.reviewerImg = u.img`
-        );
-
-        // Update user rating
-        await con.promise().query(
-            `UPDATE users u 
-             JOIN ( SELECT userID, AVG(rating) AS avg_rating FROM userreviews GROUP BY userID ) ur ON u.userID = ur.userID 
-             SET u.rating = ur.avg_rating`
-        );
-        
-        // Insert service review
-        await con.promise().query(
-            'INSERT INTO orderReviews (serviceID, rating) VALUES (?, ?)',
-            [serviceID, serviceRating]
-        );
-
-        // Update service rating
-        await con.promise().query(
-            `UPDATE services o 
-             JOIN ( SELECT serviceID, AVG(rating) AS avg_rating FROM orderreviews GROUP BY serviceID ) ors ON o.serviceID = ors.serviceID 
-             SET o.rating = ors.avg_rating`
-        );
-
-        sendSuccess(res, null, 'Review submitted successfully', 201);
-
-    } catch (err) {
-        handleError(res, err, 'Failed to submit review');
-    }
-});
-
-// PUT /api/orders/:id (update order)
-app.put('/api/orders/:id', upload.none(), async (req, res) => {
-    const { id } = req.params;
-    const { deadline, details } = req.body;
-
-    // Input validation
-    if (!deadline || !details) {
-        return res.status(400).json({
-            success: false,
-            message: 'Deadline and details are required'
-        });
-    }
-
-    try {
-        const sql = `UPDATE orders SET deadline = ?, details = ? WHERE orderID = ?`;
-        con.query(sql, [deadline, details, id], (err, result) => {
-            if (err) return handleError(res, err, 'Failed to update order');
-            
-            if (result.affectedRows === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Order not found'
-                });
+            // Use default thumbnail
+            const defaultThumbPath = path.join('C:\\ProgramData\\MySQL\\MySQL Server 8.0\\Uploads', 'blankthumb.jpg');
+            if (fs.existsSync(defaultThumbPath)) {
+                imgData = await fs.promises.readFile(defaultThumbPath);
             }
-            
-            sendSuccess(res, null, 'Order updated successfully');
+        }
+
+        const [result] = await con.execute(
+            'INSERT INTO services (serviceName, ownerID, price, catID, img) VALUES (?, ?, ?, ?, ?)',
+            [serviceName, ownerID, price, catID, imgData]
+        );
+
+        res.status(201).json({
+            success: true,
+            message: 'Service created successfully',
+            data: { serviceID: result.insertId }
         });
+
     } catch (err) {
-        handleError(res, err, 'Failed to process request');
+        console.error('Error creating service:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create service',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
     }
 });
 
-// DELETE /api/services/:id (delete service)
-app.delete("/api/services/:id", (req, res) => {
-    const { id } = req.params;
-    
-    const sql = `DELETE FROM services WHERE serviceID = ?`;
-    con.query(sql, [id], (err, result) => {
-        if (err) return handleError(res, err, 'Failed to delete service');
+// DELETE /api/services/:id - Delete service
+app.delete("/api/services/:id", async (req, res) => {
+    try {
+        const serviceID = req.params.id;
         
+        const [result] = await con.execute(
+            'DELETE FROM services WHERE serviceID = ?',
+            [serviceID]
+        );
+
         if (result.affectedRows === 0) {
             return res.status(404).json({
                 success: false,
                 message: 'Service not found'
             });
         }
-        
-        sendSuccess(res, null, 'Service deleted successfully');
-    });
-});
-// Health check endpoint
-app.get("/api/health", (req, res) => {
-    res.status(200).json({
-        success: true,
-        message: "Server is running",
-        timestamp: new Date().toISOString()
-    });
+
+        res.json({
+            success: true,
+            message: 'Service deleted successfully'
+        });
+
+    } catch (err) {
+        console.error('Error deleting service:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to delete service',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
 });
 
-// 404 handler for undefined routes
-app.use("*", (req, res) => {
+// ORDERS ENDPOINTS
+
+// POST /api/orders - Create new order
+app.post("/api/orders", async (req, res) => {
+    try {
+        const { custID, lancerID, deadline, details, serviceID, title, custName, lancerName, price, status } = req.body;
+
+        // Validate required fields
+        const requiredFields = ['custID', 'lancerID', 'deadline', 'details', 'serviceID', 'title', 'custName', 'lancerName', 'price', 'status'];
+        const missingFields = requiredFields.filter(field => !req.body[field]);
+        
+        if (missingFields.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: `Missing required fields: ${missingFields.join(', ')}`
+            });
+        }
+
+        // Insert the order
+        const [result] = await con.execute(
+            `INSERT INTO orders (custID, lancerID, deadline, details, serviceID, title, custName, lancerName, price, status) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [custID, lancerID, deadline, details, serviceID, title, custName, lancerName, price, status]
+        );
+
+        // Update order with service image
+        await con.execute(
+            `UPDATE orders o 
+             JOIN services s ON o.serviceID = s.serviceID 
+             SET o.img = s.img 
+             WHERE o.orderID = ?`,
+            [result.insertId]
+        );
+
+        res.status(201).json({
+            success: true,
+            message: 'Order created successfully',
+            data: { orderID: result.insertId }
+        });
+
+    } catch (err) {
+        console.error('Error creating order:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create order',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
+});
+
+// GET /api/orders/:id - Get specific order
+app.get("/api/orders/:id", async (req, res) => {
+    try {
+        const orderID = req.params.id;
+        
+        const [orders] = await con.execute(
+            'SELECT * FROM orders WHERE orderID = ?',
+            [orderID]
+        );
+
+        if (orders.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: orders[0]
+        });
+
+    } catch (err) {
+        console.error('Error fetching order:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch order',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
+});
+
+// GET /api/users/:id/orders - Get orders for freelancer (as lancer)
+app.get("/api/users/:id/orders", async (req, res) => {
+    try {
+        const userID = req.params.id;
+        
+        const [orders] = await con.execute(
+            'SELECT * FROM orders WHERE lancerID = ?',
+            [userID]
+        );
+
+        res.json({
+            success: true,
+            data: orders
+        });
+
+    } catch (err) {
+        console.error('Error fetching user orders:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch user orders',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
+});
+
+// GET /api/users/:id/requests - Get requests for customer (as customer)
+app.get("/api/users/:id/requests", async (req, res) => {
+    try {
+        const userID = req.params.id;
+        
+        const [requests] = await con.execute(
+            'SELECT * FROM orders WHERE custID = ?',
+            [userID]
+        );
+
+        res.json({
+            success: true,
+            data: requests
+        });
+
+    } catch (err) {
+        console.error('Error fetching user requests:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch user requests',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
+});
+
+// PUT /api/orders/:id - Update order
+app.put("/api/orders/:id", upload.single('proof'), async (req, res) => {
+    try {
+        const orderID = req.params.id;
+        const { status, deadline, details } = req.body;
+
+        // Check if order exists
+        const [existingOrders] = await con.execute(
+            'SELECT orderID FROM orders WHERE orderID = ?',
+            [orderID]
+        );
+
+        if (existingOrders.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found'
+            });
+        }
+
+        let updateQuery, updateParams;
+
+        if (req.file) {
+            // Update with proof image
+            const filePath = req.file.path;
+            const imgData = await fs.promises.readFile(filePath);
+            await fs.promises.unlink(filePath); // Clean up
+
+            updateQuery = 'UPDATE orders SET status = ?, img = ? WHERE orderID = ?';
+            updateParams = [status, imgData, orderID];
+        } else if (deadline && details) {
+            // Update deadline and details
+            updateQuery = 'UPDATE orders SET deadline = ?, details = ? WHERE orderID = ?';
+            updateParams = [deadline, details, orderID];
+        } else if (status) {
+            // Update status only
+            updateQuery = 'UPDATE orders SET status = ? WHERE orderID = ?';
+            updateParams = [status, orderID];
+        } else {
+            return res.status(400).json({
+                success: false,
+                message: 'No valid fields to update'
+            });
+        }
+
+        await con.execute(updateQuery, updateParams);
+
+        res.json({
+            success: true,
+            message: 'Order updated successfully'
+        });
+
+    } catch (err) {
+        console.error('Error updating order:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update order',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
+});
+
+
+// REVIEWS ENDPOINTS
+
+// GET /api/users/:id/reviews - Get reviews for a user
+app.get("/api/users/:id/reviews", async (req, res) => {
+    try {
+        const userID = req.params.id;
+        
+        const [reviews] = await con.execute(
+            'SELECT * FROM userReviews WHERE userID = ?',
+            [userID]
+        );
+
+        res.json({
+            success: true,
+            data: reviews
+        });
+
+    } catch (err) {
+        console.error('Error fetching user reviews:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch user reviews',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
+});
+
+// POST /api/reviews - Create new review
+app.post('/api/reviews', upload.none(), async (req, res) => {
+    try {
+        const { lancerRating, serviceRating, serviceID, userID, ownerID, reviewText, username, rated, orderID } = req.body;
+
+        // Validate required fields
+        if (!lancerRating || !serviceRating || !serviceID || !userID || !ownerID || !reviewText || !username || !orderID) {
+            return res.status(400).json({
+                success: false,
+                message: 'All review fields are required'
+            });
+        }
+
+        await con.execute('START TRANSACTION');
+
+        try {
+            // Insert user review
+            await con.execute(
+                'INSERT INTO userReviews (reviewText, custID, userID, rating, reviewer) VALUES (?, ?, ?, ?, ?)',
+                [reviewText, userID, ownerID, lancerRating, username]
+            );
+
+            // Update order as rated
+            await con.execute(
+                'UPDATE orders SET rated = ? WHERE orderID = ?',
+                [rated, orderID]
+            );
+
+            // Update reviewer image
+            await con.execute(`
+                UPDATE userreviews ur 
+                JOIN users u ON ur.custID = u.userID 
+                SET ur.reviewerImg = u.img 
+                WHERE ur.custID = ? AND ur.userID = ?
+            `, [userID, ownerID]);
+
+            // Update user rating
+            await con.execute(`
+                UPDATE users u 
+                JOIN (
+                    SELECT userID, AVG(rating) AS avg_rating 
+                    FROM userreviews 
+                    GROUP BY userID
+                ) ur ON u.userID = ur.userID 
+                SET u.rating = ur.avg_rating
+            `);
+
+            // Insert service review
+            await con.execute(
+                'INSERT INTO orderReviews (serviceID, rating) VALUES (?, ?)',
+                [serviceID, serviceRating]
+            );
+
+            // Update service rating
+            await con.execute(`
+                UPDATE services s 
+                JOIN (
+                    SELECT serviceID, AVG(rating) AS avg_rating 
+                    FROM orderreviews 
+                    GROUP BY serviceID
+                ) ors ON s.serviceID = ors.serviceID 
+                SET s.rating = ors.avg_rating
+            `);
+
+            await con.execute('COMMIT');
+
+            res.status(201).json({
+                success: true,
+                message: 'Review submitted successfully'
+            });
+
+        } catch (err) {
+            await con.execute('ROLLBACK');
+            throw err;
+        }
+
+    } catch (err) {
+        console.error('Error creating review:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create review',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
+});
+
+// Error handling middleware
+app.use(errorHandler);
+
+// 404 handler
+app.use('*', (req, res) => {
     res.status(404).json({
         success: false,
-        message: "Route not found"
+        message: 'Endpoint not found'
     });
 });
-
-// Global error handler
-app.use((err, req, res, next) => {
-    console.error('Unhandled error:', err);
-    res.status(500).json({
-        success: false,
-        message: 'Internal server error',
-        error: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-});
+  
 
 // Start the server
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
-    console.log(`Health check available at: http://localhost:${port}/api/health`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
