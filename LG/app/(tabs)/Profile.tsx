@@ -1,5 +1,4 @@
-import React from 'react';
-import { useCallback, useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { View, StyleSheet, Image, Text, TouchableOpacity } from 'react-native';
 import Icon from "@expo/vector-icons/FontAwesome"
@@ -42,29 +41,26 @@ const Profile: React.FC<ProfileProps> = ({ userID, setServiceIDProfile, setCurre
   }, []);
   
   const getUserProfile = async () => { 
-    const requestData = {
-      userID: userID,
-    };
-  
     try {
-      const response = await fetch('http://192.168.1.29:8000/serviceOwner', {
-        method: 'POST',
+      const response = await fetch(`http://192.168.1.29:8000/api/users/${userID}`, {
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestData),
       });
       
       const jsonData = await response.json();
-      setUserDetails(jsonData.message);
-
-      const numStars = parseInt(jsonData.message[0].rating); // Convert rating to a number
-    
-      const starsArray: JSX.Element[] = [];
-      for (let i = 0; i < numStars; i++) {
-        starsArray.push(<Icon name="star" size={25} color="white" />);
+      if (jsonData.success && jsonData.data) {
+        setUserDetails([jsonData.data]);
+        
+        const numStars = parseInt(jsonData.data.rating); // Convert rating to a number
+      
+        const starsArray: JSX.Element[] = [];
+        for (let i = 0; i < numStars; i++) {
+          starsArray.push(<Icon name="star" size={25} color="white" />);
+        }
+        setStars(starsArray);
       }
-      setStars(starsArray);
 
     } catch (error) {
       console.error('Error fetching data:', error);

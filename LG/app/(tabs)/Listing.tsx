@@ -52,7 +52,7 @@ useEffect(() => {
 
 const getCategories = async () => {
   try {
-    const response = await fetch('http://192.168.1.29:8000/getCategories');
+    const response = await fetch('http://192.168.1.29:8000/api/categories');
 
     
     if (!response.ok) {
@@ -66,12 +66,14 @@ const getCategories = async () => {
     }
     
     const jsonData = await response.json();
-    const formattedCategories = jsonData.message.map((category: Category)=> ({
-      label: category.catName, // Assuming categoryName is the field containing the category name
-      value: category.catNum,     // Use catNumber as the value
-    }));
-    
-    setCategories(formattedCategories);
+    if (jsonData.success && jsonData.data) {
+      const formattedCategories = jsonData.data.map((category: Category)=> ({
+        label: category.catName, // Assuming categoryName is the field containing the category name
+        value: category.catNum,     // Use catNumber as the value
+      }));
+      
+      setCategories(formattedCategories);
+    }
   } catch (error) {
     console.error('Error fetching data:', error);
   }
@@ -160,15 +162,17 @@ const passToServer = async () => {
    });
 
   try {
-    const response = await fetch('http://192.168.1.29:8000/newService', {
+    const response = await fetch('http://192.168.1.29:8000/api/services', {
       method: 'POST',
       body: formData,
-      headers: {
-        'Content-Type': 'multipart/form-data', // This header might be set automatically by FormData
-      },
     });
 
-    setModalVisible(true);
+    const jsonData = await response.json();
+    if (jsonData.success) {
+      setModalVisible(true);
+    } else {
+      console.error('Error creating service:', jsonData.message);
+    }
 
 } catch (error) {
   console.error('Error:', error);

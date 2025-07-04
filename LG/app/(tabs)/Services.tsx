@@ -28,21 +28,18 @@ const Services: React.FC<ServicesProps> = ({ userID, setServiceIDServices, setCu
 
 
   const getUserServices = async () => { 
-    const requestData = {
-      userID: userID,
-    };
-  
     try {
-      const response = await fetch('http://192.168.1.29:8000/getUserServices', {
-        method: 'POST',
+      const response = await fetch(`http://192.168.1.29:8000/api/users/${userID}/services`, {
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestData),
       });
       
       const jsonData = await response.json();
-      setUserServices(jsonData.message);
+      if (jsonData.success && jsonData.data) {
+        setUserServices(jsonData.data);
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
   }}

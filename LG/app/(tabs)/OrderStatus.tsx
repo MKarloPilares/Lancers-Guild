@@ -62,49 +62,43 @@ const OrderStatus: React.FC<OrderStatusProps> = ({customerID, setCurrentPageOrde
 
 
   const getUserProfile = async () => { 
-    const requestData = {
-      userID: customerID
-    };
-  
     try {
-      const response = await fetch('http://192.168.1.29:8000/serviceOwner', {
-        method: 'POST',
+      const response = await fetch(`http://192.168.1.29:8000/api/users/${customerID}`, {
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestData),
       });
       
       const jsonData = await response.json();
-      setUserDetails(jsonData.message);
-      const numStars = parseInt(jsonData.message[0].rating); // Convert rating to a number
-    
-      const starsArray: JSX.Element[] = [];
-      for (let i = 0; i < numStars; i++) {
-        starsArray.push(<Icon name="star" size={25} color="white" />);
+      if (jsonData.success && jsonData.data) {
+        setUserDetails([jsonData.data]);
+        const numStars = parseInt(jsonData.data.rating); // Convert rating to a number
+      
+        const starsArray: JSX.Element[] = [];
+        for (let i = 0; i < numStars; i++) {
+          starsArray.push(<Icon name="star" size={25} color="white" />);
+        }
+        setStars(starsArray);
       }
-      setStars(starsArray);
       
     } catch (error) {
       console.error('Error fetching data:', error);
   }}
 
   const getOrderDetails = async () => { 
-    const requestData = {
-      orderID: orderID,
-    };
-  
     try {
-      const response = await fetch('http://192.168.1.29:8000/getOrderDetails', {
-        method: 'POST',
+      const response = await fetch(`http://192.168.1.29:8000/api/orders/${orderID}`, {
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestData),
       });
       
       const jsonData = await response.json();
-      setOrderDetails(jsonData.message);
+      if (jsonData.success && jsonData.data) {
+        setOrderDetails([jsonData.data]);
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
   }}
@@ -114,23 +108,22 @@ const OrderStatus: React.FC<OrderStatusProps> = ({customerID, setCurrentPageOrde
 
     const formData = new FormData();
     formData.append('status', 'Completed');
-    formData.append('orderID', orderID );
     formData.append('proof', {
       uri : fileUri,
       type: 'image/png',
       name: 'thumbnail.jpeg'
-     });
+     } as any);
   
     try {
-      const response = await fetch('http://192.168.1.29:8000/completeOrder', {
-        method: 'POST',
+      const response = await fetch(`http://192.168.1.29:8000/api/orders/${orderID}`, {
+        method: 'PUT',
         body: formData,
-        headers: {
-          'Content-Type': 'multipart/form-data', // This header might be set automatically by FormData
-        },
       });
 
-      setModalVisible(true);
+      const jsonData = await response.json();
+      if (jsonData.success) {
+        setModalVisible(true);
+      }
   
   } catch (error) {
     console.error('Error:', error);

@@ -25,10 +25,11 @@ const Login: React.FC<LoginProps> = ({ setCurrentPageLogin, setLoggedInUsername,
   const passToServer = async () => { 
     const requestData = {
       username: username,
+      password: password,
     };
   
     try {
-      const response = await fetch('http://192.168.1.29:8000/login', {
+      const response = await fetch('http://192.168.1.29:8000/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -37,11 +38,11 @@ const Login: React.FC<LoginProps> = ({ setCurrentPageLogin, setLoggedInUsername,
       });
       
       const jsonData = await response.json();
-      if (password === jsonData.message[0].pass) {
+      if (jsonData.success && jsonData.data) {
         setCurrentPageLogin('3');
-        setLoggedInUsername(jsonData.message[0].username);
-        setLoggedInEmail(jsonData.message[0].email);
-        setLoggedInUserID(jsonData.message[0].userID);
+        setLoggedInUsername(jsonData.data.username);
+        setLoggedInEmail(jsonData.data.email);
+        setLoggedInUserID(jsonData.data.userID);
       } else {
         setwrongpassWord(true);
         setWrongUsername(false);

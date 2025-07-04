@@ -27,21 +27,18 @@ const Orders: React.FC<OrdersProps> = ({ userID, setCurrentPageOrders, setProfil
 
 
   const getUserOrders = async () => { 
-    const requestData = {
-      userID: userID,
-    };
-  
     try {
-      const response = await fetch('http://192.168.1.29:8000/getUserOrders', {
-        method: 'POST',
+      const response = await fetch(`http://192.168.1.29:8000/api/users/${userID}/orders`, {
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestData),
       });
       
       const jsonData = await response.json();
-      setUserServices(jsonData.message);
+      if (jsonData.success && jsonData.data) {
+        setUserServices(jsonData.data);
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
   }}
