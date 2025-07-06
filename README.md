@@ -7,3 +7,12 @@ Lancer's Guild is a fullstack project that:
     1. Has a frontend application built with TypeScript and React Native.
     2. Has a backend application made with Javascript and NodeJS.
 
+
+Features:
+
+    1. User signup with validated input.
+    2. Profile customization.
+    3. Service listing.
+    4. Service ordering.
+    5. Order management.
+    6. Service and freelancer feedback.
