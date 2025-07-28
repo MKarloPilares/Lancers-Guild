@@ -16,3 +16,9 @@ Features:
     4. Service ordering.
     5. Order management.
     6. Service and freelancer feedback.
+
+The project has several flaws in its code, including but are not limited to:
+
+    1. Code structure
+    2. Readability
+    3. Lack of OOP
